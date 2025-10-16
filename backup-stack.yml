@@ -1,0 +1,104 @@
+services:
+  cronjob:
+    image: crazymax/swarm-cronjob
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    environment:
+      TZ: Etc/UTC
+      LOG_LEVEL: info
+      LOG_JSON: "true"
+    deploy:
+      mode: replicated
+      replicas: 1
+      placement:
+        constraints:
+        - node.role == manager
+      resources:
+        reservations:
+          memory: 256M
+        limits:
+          memory: 128M
+
+  prune-images:
+    image: docker
+    command: docker image prune -a -f
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    deploy:
+      labels:
+        - swarm.cronjob.enable=true
+        - swarm.cronjob.schedule=0 0 2 * * 4 # Every Thursday at 2:00 UTC
+        - swarm.cronjob.skip-running=true
+      mode: global
+      restart_policy: # make sure to set this else the container will restart once the job is done
+        condition: none
+
+  prune-backups:
+    image: alpine
+    volumes:
+      - "/home/backup:/backup"
+    networks:
+      traefik-public:
+    command: find /backup -type f -mtime +30 -delete
+    deploy:
+      labels:
+        - swarm.cronjob.enable=true
+        - swarm.cronjob.schedule=0 30 0 * * * # At minute 30 after midnight
+        - swarm.cronjob.skip-running=true
+      mode: replicated
+      replicas: 1
+      placement:
+        constraints:
+          - node.labels.type == backup
+      restart_policy:
+        condition: none
+
+  mongo-backup:
+    image: mongo:7.0.16
+    volumes:
+      - "/home/backup/mongo:/backup"
+    networks:
+      traefik-public:    
+    entrypoint: |
+      sh -c 'sh -s <<EOF
+        mongodump --uri "mongodb://mongo-1.local,mongo-2.local,mongo-3.local/?replicaSet=replica01" --oplog --archive="/backup/\`date +%Y%m%d-%H%M%S\`_mongodump.gz" --gzip --readPreference "secondaryPreferred"
+      EOF'
+    deploy:
+      labels:
+        - swarm.cronjob.enable=true
+        - swarm.cronjob.schedule=0 15 * * * * # At minute 15
+        - swarm.cronjob.skip-running=true
+      mode: replicated
+      replicas: 1
+      placement:
+        constraints:
+          - node.labels.type == backup
+      restart_policy:
+        condition: none
+
+  redis-backup:
+    image: redis:7.4.2
+    volumes:
+      - "/home/backup/redis:/backup"
+    networks:
+      traefik-public:
+    entrypoint: |
+      sh -c 'sh -s <<EOF
+        redis-cli -u "redis://redis-haproxy.local" --rdb "/backup/\`date +%Y%m%d-%H%M%S\`_dump.rdb"
+      EOF'
+    deploy:
+      labels:
+        - swarm.cronjob.enable=true
+        - swarm.cronjob.schedule=0 45 * * * * # At minute 45
+        - swarm.cronjob.skip-running=true
+      mode: replicated
+      replicas: 1
+      placement:
+        constraints:
+          - node.labels.type == backup
+      restart_policy:
+        condition: none
+
+networks:
+  traefik-public:
+    external: true

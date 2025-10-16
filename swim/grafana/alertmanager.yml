@@ -1,0 +1,15 @@
+apiVersion: 1
+
+deleteDatasources:
+  - name: Alertmanager
+
+datasources:
+  - name: Alertmanager
+    type: alertmanager
+    access: proxy
+    url: http://alertmanager.local:9093    
+    jsonData:
+      # Valid options for implementation include mimir, cortex and prometheus
+      implementation: prometheus
+      # Whether or not Grafana should send alert instances to this Alertmanager
+      handleGrafanaManagedAlerts: true

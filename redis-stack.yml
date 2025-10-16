@@ -1,0 +1,192 @@
+configs:
+  redis-haproxy-conf:
+    file: ./redis/haproxy/haproxy.cfg
+  redis-1-conf:
+    file: ./redis/redis-1.conf
+  redis-2-conf:
+    file: ./redis/redis-2.conf
+  redis-3-conf:
+    file: ./redis/redis-3.conf
+  redis-sentinel-entrypoint-script:
+    file: ./redis/sentinel/docker-entrypoint.sh
+  redis-sentinel-1-conf:
+    file: ./redis/sentinel/redis-sentinel-1.conf
+  redis-sentinel-2-conf:
+    file: ./redis/sentinel/redis-sentinel-2.conf
+  redis-sentinel-3-conf:
+    file: ./redis/sentinel/redis-sentinel-3.conf
+
+services:
+  redis-haproxy:
+    image: haproxy:3.1.2
+    configs:
+      - source: redis-haproxy-conf
+        target: /usr/local/etc/haproxy/haproxy.cfg
+    networks:
+      traefik-public:
+        aliases:
+          - redis-haproxy.local
+    deploy:
+      mode: replicated
+      replicas: 1
+      placement:
+        max_replicas_per_node: 1
+        constraints:
+          - node.labels.type != minio
+
+  redis-1:
+    image: redis:7.4.2
+    command: redis-server /etc/redis/redis.conf
+    configs:
+      - source: redis-1-conf
+        target: /etc/redis/redis.conf
+    volumes:
+      - redis-data-1:/data
+    networks:
+      traefik-public:
+        aliases:
+          - redis-1.local
+    deploy:
+      mode: replicated
+      replicas: 1
+      placement:
+        constraints:
+          - node.labels.redis.replica == 1
+
+  redis-2:
+    image: redis:7.4.2
+    command: redis-server /etc/redis/redis.conf
+    configs:
+      - source: redis-2-conf
+        target: /etc/redis/redis.conf
+    volumes:
+      - redis-data-2:/data
+    depends_on:
+      - redis-1
+    networks:
+      traefik-public:
+        aliases:
+          - redis-2.local
+    deploy:
+      mode: replicated
+      replicas: 1
+      placement:
+        constraints:
+          - node.labels.redis.replica == 2
+
+  redis-3:
+    image: redis:7.4.2
+    command: redis-server /etc/redis/redis.conf
+    configs:
+      - source: redis-3-conf
+        target: /etc/redis/redis.conf
+    volumes:
+      - redis-data-3:/data
+    depends_on:
+      - redis-1
+    networks:
+      traefik-public:
+        aliases:
+          - redis-3.local
+    deploy:
+      mode: replicated
+      replicas: 1
+      placement:
+        constraints:
+          - node.labels.redis.replica == 3
+
+  redis-sentinel-1:
+    image: redis:7.4.2
+    configs:
+      - source: redis-sentinel-entrypoint-script
+        target: /etc/redis/docker-entrypoint.sh
+        mode: 0555 # read & execute access to all users
+      - source: redis-sentinel-1-conf
+        target: /tmp/sentinel.conf
+    volumes:
+      - redis-sentinel-1-conf-dir:/sentinel
+    entrypoint: /etc/redis/docker-entrypoint.sh
+    command: 
+      - /sentinel/sentinel.conf
+    depends_on:
+      - redis-1
+      - redis-2
+      - redis-3
+    networks:
+      traefik-public:
+        aliases:
+          - redis-sentinel-1.local
+    deploy:
+      mode: replicated
+      replicas: 1
+      placement:
+        constraints:
+          - node.labels.redis.replica == 1
+
+  redis-sentinel-2:
+    image: redis:7.4.2
+    configs:
+      - source: redis-sentinel-entrypoint-script
+        target: /etc/redis/docker-entrypoint.sh
+        mode: 0555 # read & execute access to all users
+      - source: redis-sentinel-2-conf
+        target: /tmp/sentinel.conf
+    volumes:
+      - redis-sentinel-2-conf-dir:/sentinel
+    entrypoint: /etc/redis/docker-entrypoint.sh
+    command: 
+      - /sentinel/sentinel.conf
+    depends_on:
+      - redis-1
+      - redis-2
+      - redis-3
+    networks:
+      traefik-public:
+        aliases:
+          - redis-sentinel-2.local
+    deploy:
+      mode: replicated
+      replicas: 1
+      placement:
+        constraints:
+          - node.labels.redis.replica == 2
+
+  redis-sentinel-3:
+    image: redis:7.4.2
+    configs:
+      - source: redis-sentinel-entrypoint-script
+        target: /etc/redis/docker-entrypoint.sh
+        mode: 0555 # read & execute access to all users
+      - source: redis-sentinel-3-conf
+        target: /tmp/sentinel.conf
+    volumes:
+      - redis-sentinel-3-conf-dir:/sentinel
+    entrypoint: /etc/redis/docker-entrypoint.sh
+    command: 
+      - /sentinel/sentinel.conf
+    depends_on:
+      - redis-1
+      - redis-2
+      - redis-3
+    networks:
+      traefik-public:
+        aliases:
+          - redis-sentinel-3.local
+    deploy:
+      mode: replicated
+      replicas: 1
+      placement:
+        constraints:
+          - node.labels.redis.replica == 3
+
+volumes:
+  redis-data-1:
+  redis-data-2:
+  redis-data-3:
+  redis-sentinel-1-conf-dir:
+  redis-sentinel-2-conf-dir:
+  redis-sentinel-3-conf-dir:
+
+networks:
+  traefik-public:
+    external: true

@@ -1,0 +1,95 @@
+services:
+  postgres-1:
+    image: docker.io/bitnami/postgresql-repmgr:17
+    volumes:
+      - postgres-data-1:/bitnami/postgresql
+    environment:
+      - POSTGRESQL_PASSWORD_FILE=/run/secrets/postgres-postgres-password
+      - REPMGR_PASSWORD_FILE=/run/secrets/postgres-repmgr-password
+      - REPMGR_PRIMARY_HOST=postgres-1.local
+      - REPMGR_PRIMARY_PORT=5432
+      - REPMGR_PARTNER_NODES=postgres-1.local,postgres-2.local,postgres-3.local:5432
+      - REPMGR_NODE_NAME=postgres-1
+      - REPMGR_NODE_NETWORK_NAME=postgres-1.local
+      - REPMGR_PORT_NUMBER=5432
+    secrets:
+      - postgres-postgres-password
+      - postgres-repmgr-password
+    networks:
+      traefik-public:
+        aliases:
+          - postgres-1.local
+    deploy:
+      mode: replicated
+      replicas: 1
+      placement:
+        constraints:
+          - node.labels.postgres.replica == 1
+
+  postgres-2:
+    image: docker.io/bitnami/postgresql-repmgr:17
+    volumes:
+      - postgres-data-2:/bitnami/postgresql
+    environment:
+      - POSTGRESQL_PASSWORD_FILE=/run/secrets/postgres-postgres-password
+      - REPMGR_PASSWORD_FILE=/run/secrets/postgres-repmgr-password
+      - REPMGR_PRIMARY_HOST=postgres-1.local
+      - REPMGR_PRIMARY_PORT=5432
+      - REPMGR_PARTNER_NODES=postgres-1.local,postgres-2.local,postgres-3.local:5432
+      - REPMGR_NODE_NAME=postgres-2
+      - REPMGR_NODE_NETWORK_NAME=postgres-2.local
+      - REPMGR_PORT_NUMBER=5432
+    secrets:
+      - postgres-postgres-password
+      - postgres-repmgr-password
+    networks:
+      traefik-public:
+        aliases:
+          - postgres-2.local
+    deploy:
+      mode: replicated
+      replicas: 1
+      placement:
+        constraints:
+          - node.labels.postgres.replica == 2
+
+  postgres-3:
+    image: docker.io/bitnami/postgresql-repmgr:17
+    volumes:
+      - postgres-data-3:/bitnami/postgresql
+    environment:
+      - POSTGRESQL_PASSWORD_FILE=/run/secrets/postgres-postgres-password
+      - REPMGR_PASSWORD_FILE=/run/secrets/postgres-repmgr-password
+      - REPMGR_PRIMARY_HOST=postgres-1.local
+      - REPMGR_PRIMARY_PORT=5432
+      - REPMGR_PARTNER_NODES=postgres-1.local,postgres-2.local,postgres-3.local:5432
+      - REPMGR_NODE_NAME=postgres-3
+      - REPMGR_NODE_NETWORK_NAME=postgres-3.local
+      - REPMGR_PORT_NUMBER=5432
+    secrets:
+      - postgres-postgres-password
+      - postgres-repmgr-password
+    networks:
+      traefik-public:
+        aliases:
+          - postgres-3.local
+    deploy:
+      mode: replicated
+      replicas: 1
+      placement:
+        constraints:
+          - node.labels.postgres.replica == 3
+secrets:
+  postgres-postgres-password:
+    file: ./secrets/postgres-postgres-password.txt
+  postgres-repmgr-password:
+    file: ./secrets/postgres-repmgr-password.txt
+
+volumes:
+  postgres-data-1:
+  postgres-data-2:
+  postgres-data-3:
+
+networks:
+  traefik-public:
+    external: true

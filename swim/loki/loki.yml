@@ -1,0 +1,58 @@
+auth_enabled: false
+
+server:
+  http_listen_port: 3100
+
+common:
+  path_prefix: /loki
+  storage:
+    filesystem:
+      chunks_directory: /loki/chunks
+      rules_directory: /loki/rules
+  replication_factor: 1
+  ring:
+    kvstore:
+      store: inmemory
+
+storage_config:
+  tsdb_shipper:
+    active_index_directory: /data/tsdb-index
+    cache_location: /data/tsdb-cache
+
+schema_config:
+  configs:
+    - from: 2020-10-24
+      store: boltdb-shipper
+      object_store: filesystem
+      schema: v11
+      index:
+        prefix: index_
+        period: 24h
+    - from: 2024-09-05
+      store: tsdb
+      object_store: filesystem
+      schema: v13
+      index:
+        prefix: index_
+        period: 24h
+
+limits_config:
+  retention_period: 7d # days to delete old logs, you can change
+  max_query_lookback: 7d # days to delete old logs, you can change
+
+ruler:
+  alertmanager_url: http://alertmanager.local:9093
+
+analytics:
+  reporting_enabled: false
+
+compactor:
+  working_directory: /loki/retention
+  compaction_interval: 15m
+  delete_request_store: filesystem
+  retention_enabled: true
+  retention_delete_delay: 2h
+  retention_delete_worker_count: 150
+  
+querier:
+  query_ingesters_within: 3h # avoid https://github.com/grafana/loki/issues/6043

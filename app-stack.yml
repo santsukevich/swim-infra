@@ -1,0 +1,50 @@
+services:
+  infra-tester:
+    build: ./app
+    container_name: infra-tester
+    networks:
+      traefik-public:
+        aliases:
+          - infra-tester.local
+    environment:
+      POSTGRES_URL: ${POSTGRES_URL}
+      MONGO_URL: ${MONGO_URL}
+      REDIS_URL: ${REDIS_URL}
+      S3_ENDPOINT: ${S3_ENDPOINT}
+      S3_ACCESS_KEY: ${S3_ACCESS_KEY}
+      S3_SECRET_KEY: ${S3_SECRET_KEY}
+      CHECK_INTERVAL: 5
+    deploy:
+      labels:
+        - "traefik.enable=true"
+        # `infra-tester` router
+        - "traefik.http.services.infra-tester.loadbalancer.server.port=8000"
+        - "traefik.http.routers.infra-tester.rule=Host(`infra-teser.${APP_DOMAIN}`)"
+        - "traefik.http.routers.infra-tester.service=infra-tester"
+        - "traefik.http.routers.infra-tester.entrypoints=websecure"
+        - "traefik.http.routers.infra-tester.tls=true"
+        - "traefik.http.routers.infra-tester.tls.certresolver=leresolver"
+      mode: replicated
+      replicas: 4
+      update_config:
+        parallelism: 1
+        order: start-first
+        failure_action: rollback
+        delay: 15s
+      resources:
+        limits:
+          memory: 256M
+        reservations:
+          memory: 128M
+      placement:
+        constraints: 
+          - node.labels.type == app
+    healthcheck:
+      test: curl -sS http://127.0.0.1:8000/health || echo 1
+      interval: 60s
+      timeout: 2s
+      retries: 5
+
+networks:
+  traefik-public:
+    external: true

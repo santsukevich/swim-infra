@@ -1,0 +1,436 @@
+configs:
+  dockerd_config:
+    file: ./swim/dockerd-exporter/Caddyfile
+  node_exporter_entrypoint_script:
+    file: ./swim/node-exporter/docker-entrypoint.sh
+  node_rules:
+    file: ./swim/prometheus/rules/node.rules.yml
+  task_rules:
+    file: ./swim/prometheus/rules/task.rules.yml
+  prometheus_rules:
+    file: ./swim/prometheus/rules/prometheus.rules.yml
+  traefik_rules:
+    file: ./swim/prometheus/rules/traefik.rules.yml
+  loki_rules:
+    file: ./swim/prometheus/rules/loki.rules.yml
+  promtail_rules:
+    file: ./swim/prometheus/rules/promtail.rules.yml
+  minio_rules:
+    file: ./swim/prometheus/rules/minio.rules.yml
+  mongo_rules:
+    file: ./swim/prometheus/rules/mongo.rules.yml
+  redis_rules:
+    file: ./swim/prometheus/rules/redis.rules.yml
+  postgres_rules:
+    file: ./swim/prometheus/rules/postgres.rules.yml
+  prometheus_config:
+    file: ./swim/prometheus/prometheus.yml
+  alertmanager_config:
+    file: ./swim/alertmanager/alertmanager.yml
+  alertmanager_template_telegram:
+    file: ./swim/alertmanager/templates/telegram.swim.tmpl
+  promtail_config:
+    file: ./swim/promtail/promtail.yml
+  loki_config:
+    file: ./swim/loki/loki.yml
+  grafana_data_sources_prometheus:
+    file: ./swim/grafana/prometheus.yml
+  grafana_data_sources_loki:
+    file: ./swim/grafana/loki.yml
+  grafana_data_sources_alertmanager:
+    file: ./swim/grafana/alertmanager.yml
+  grafana_dashboards_provisioning:
+    file: ./swim/grafana/swarmprom_dashboards.yml
+  grafana_dashboard_node-exporter-full:
+    file: ./swim/grafana/dashboards/node-exporter-full.json
+  grafana_dashboard_swarm-monitor:
+    file: ./swim/grafana/dashboards/swarm-monitor.json
+  grafana_dashboard_swarmprom-nodes:
+    file: ./swim/grafana/dashboards/swarmprom-nodes.json
+  grafana_dashboard_stacks-and-services:
+    file: ./swim/grafana/dashboards/swarmprom-stacks-and-services.json
+  grafana_dashboard_minio_dashboard:
+    file: ./swim/grafana/dashboards/minio-dashboard.json
+  grafana_dashboard_mongodb:
+    file: ./swim/grafana/dashboards/mongodb.json
+  grafana_dashboard_redis:
+    file: ./swim/grafana/dashboards/redis.json
+  grafana_dashboard_haproxy:
+    file: ./swim/grafana/dashboards/haproxy-2-full.json
+
+services:
+  dockerd-exporter: # Docker daemon metrics collector
+    image: caddy:2.9.1
+    networks:
+      - traefik-public
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    environment:
+      - DOCKER_GWBRIDGE_IP=172.18.0.1
+    configs:
+      - source: dockerd_config
+        target: /etc/caddy/Caddyfile
+    deploy:
+      mode: global
+      resources:
+        limits:
+          memory: 128M
+        reservations:
+          memory: 64M
+
+  cadvisor: # containers metrics collector
+    image: gcr.io/cadvisor/cadvisor:v0.49.2
+    command: -logtostderr -docker_only
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - /:/rootfs:ro
+      - /var/run:/var/run
+      - /sys:/sys:ro
+      - /var/lib/docker/:/var/lib/docker:ro
+    networks:
+      - traefik-public
+    deploy:
+      mode: global
+      resources:
+        limits:
+          memory: 128M
+        reservations:
+          memory: 64M
+
+  node-exporter: # host metrics collector
+    image: prom/node-exporter:v1.8.2
+    networks:
+      - traefik-public
+    ####################################################
+    # Custom entrypoint to export the metric "node_meta"
+    # that includes the hostname and more.
+    ####################################################
+    entrypoint: /etc/node-exporter/docker-entrypoint.sh
+    environment:
+      - NODE_ID={{.Node.ID}}
+    configs:
+      - source: node_exporter_entrypoint_script
+        target: /etc/node-exporter/docker-entrypoint.sh
+        mode: 0555 # read & execute access to all users
+    volumes:
+      - /proc:/host/proc:ro
+      - /sys:/host/sys:ro
+      - /:/rootfs:ro
+      - /run/systemd/private:/run/systemd/private:ro
+#      - /var/run/dbus/system_bus_socket:/var/run/dbus/system_bus_socket:ro
+      - /etc/hostname:/etc/nodename
+    user: root
+    command:
+      - '--path.procfs=/host/proc'
+      - '--path.sysfs=/host/sys'
+      - '--path.rootfs=/rootfs'
+      ########################################################################
+      # The "docker-entrypoint.sh" script creates a file with
+      # the custom metric "node_meta" to the "/tmp/node-exporter/" directory.
+      # See: https://github.com/prometheus/node_exporter#textfile-collector
+      ########################################################################
+      - '--collector.textfile.directory=/tmp/node-exporter/'
+      - '--collector.filesystem.mount-points-exclude=^/(sys|proc|dev|host|etc|tmp)($$$$|/)'
+      - '--collector.systemd'
+      - '--no-collector.ipvs'
+    deploy:
+      mode: global
+      resources:
+        limits:
+          memory: 128M
+        reservations:
+          memory: 64M
+
+  promtail: # containers logs collector
+    image: grafana/promtail:3.3.2
+    volumes:
+      - /var/lib/docker/containers:/var/lib/docker/containers:ro
+      - /var/log:/var/log:ro
+      - promtail-data:/var/promtail
+    configs:
+      - source: promtail_config
+        target: /etc/promtail/promtail.yml
+    environment:
+      HOST_HOSTNAME: "{{.Node.Hostname}}"
+    command:
+      - '--config.file=/etc/promtail/promtail.yml'
+      - '--config.expand-env=true'
+    networks:
+      - traefik-public
+    deploy:
+      mode: global
+      resources:
+        limits:
+          memory: 512M
+        reservations:
+          memory: 64M
+
+  pushgateway: # push metrics collector
+    image: prom/pushgateway:v1.11.0
+    networks:
+      traefik-public:
+        aliases:
+          - pushgateway.local
+    deploy:
+      mode: replicated
+      replicas: 1
+      restart_policy:
+        condition: on-failure
+      placement:
+        constraints:
+          - node.labels.type == backup
+      resources:
+        limits:
+          memory: 512M
+
+  mongo-exporter: #mongodb metrics collector
+    image: percona/mongodb_exporter:0.40
+    networks:
+      traefik-public:
+        aliases:
+          - mongo-exporter.local
+    command:
+      - '--mongodb.uri=mongodb://mongo-1.local,mongo-2.local,mongo-3.local/?replicaSet=replica01'
+      - '--discovering-mode'
+      - '--collect-all'      
+    deploy:
+      mode: replicated
+      replicas: 1
+      restart_policy:
+        condition: on-failure
+      placement:
+        constraints:
+          - node.labels.type == backup
+      resources:
+        limits:
+          memory: 128M
+
+  redis-exporter: # redis metrics collector
+    image: oliver006/redis_exporter:v1.67.0
+    networks:
+      traefik-public:
+        aliases:
+          - redis-exporter.local
+    command: --redis.addr=
+    deploy:
+      mode: replicated
+      replicas: 1
+      restart_policy:
+        condition: on-failure
+      placement:
+        constraints:
+          - node.labels.type == backup
+      resources:
+        limits:
+          memory: 128M
+
+  postgres-exporter: #postgresql metrics collector
+    image: bitnami/postgres-exporter:0.17.0
+    networks:
+      traefik-public:
+        aliases:
+          - postgres-exporter.local
+    command:
+      - '--log.level=debug'
+      - '--config.file=/run/secrets/postgres-exporter-config'
+    secrets:
+      - postgres-exporter-config
+    deploy:
+      mode: replicated
+      replicas: 1
+      restart_policy:
+        condition: on-failure
+      placement:
+        constraints:
+          - node.labels.type == backup
+      resources:
+        limits:
+          memory: 128M
+
+  loki: # logs database
+    image: grafana/loki:3.3.2
+    volumes:
+      - /home/monitoring/loki-data:/loki
+    configs:
+      - source: loki_config
+        target: /etc/loki/loki.yml
+    command: 
+      - '--config.file=/etc/loki/loki.yml'
+    user: root
+    networks:
+      traefik-public:
+        aliases:
+          - loki.local
+    deploy:
+      mode: replicated
+      replicas: 1
+      restart_policy:
+        condition: on-failure
+      placement:
+        constraints:
+          - node.labels.type == backup
+      resources:
+        limits:
+          memory: 1024M
+
+  grafana: # data visualizer
+    image: grafana/grafana:11.4.0
+    volumes:
+      - /home/monitoring/grafana-data:/var/lib/grafana
+    configs:
+      - source: grafana_data_sources_prometheus
+        target: /etc/grafana/provisioning/datasources/prometheus.yml
+      - source: grafana_data_sources_loki
+        target: /etc/grafana/provisioning/datasources/loki.yml
+      - source: grafana_data_sources_alertmanager
+        target: /etc/grafana/provisioning/datasources/alertmanager.yml
+      - source: grafana_dashboards_provisioning
+        target: /etc/grafana/provisioning/dashboards/swarmprom_dashboards.yml
+      - source: grafana_dashboard_node-exporter-full
+        target: /etc/grafana/dashboards/node-exporter-full.json
+      - source: grafana_dashboard_swarm-monitor
+        target: /etc/grafana/dashboards/swarm-monitor.json
+      - source: grafana_dashboard_swarmprom-nodes
+        target: /etc/grafana/dashboards/swarmprom-nodes.json
+      - source: grafana_dashboard_stacks-and-services
+        target: /etc/grafana/dashboards/swarmprom-stacks-and-services.json
+      - source: grafana_dashboard_minio_dashboard
+        target: /etc/grafana/dashboards/minio-dashboard.json
+      - source: grafana_dashboard_mongodb
+        target: /etc/grafana/dashboards/mongodb.json
+      - source: grafana_dashboard_redis
+        target: /etc/grafana/dashboards/redis.json
+      - source: grafana_dashboard_haproxy
+        target: /etc/grafana/dashboards/haproxy-2-full.json
+    secrets:
+      - grafana-admin-user
+      - grafana-admin-password
+    environment:
+      - GF_SECURITY_ADMIN_USER__FILE=/run/secrets/grafana-admin-user
+      - GF_SECURITY_ADMIN_PASSWORD__FILE=/run/secrets/grafana-admin-password
+      - GF_USERS_ALLOW_SIGN_UP=false
+    networks:
+      traefik-public:
+        aliases:
+          - grafana.local
+    deploy:
+      labels:
+        - "traefik.enable=true"
+        - "traefik.http.routers.grafana.rule=Host(`grafana.${APP_DOMAIN}`)"
+        - "traefik.http.services.grafana.loadbalancer.server.port=3000"
+        - "traefik.http.routers.grafana.entrypoints=websecure"
+        - "traefik.http.routers.grafana.tls=true"
+        - "traefik.http.routers.grafana.tls.certresolver=leresolver"
+      mode: replicated
+      replicas: 1
+      restart_policy:
+        condition: on-failure
+      placement:
+        constraints:
+          - node.labels.type == backup
+
+  prometheus: # metrics database
+    image: prom/prometheus:v3.1.0
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--storage.tsdb.retention.time=7d'
+    volumes:
+      - /home/monitoring/prometheus-data:/prometheus
+    configs:
+      - source: node_rules
+        target: /etc/prometheus/node.rules.yml
+      - source: prometheus_rules
+        target: /etc/prometheus/prometheus.rules.yml
+      - source: task_rules
+        target: /etc/prometheus/task.rules.yml
+      - source: traefik_rules
+        target: /etc/prometheus/traefik.rules.yml
+      - source: loki_rules
+        target: /etc/prometheus/loki.rules.yml
+      - source: promtail_rules
+        target: /etc/prometheus/promtail.rules.yml
+      - source: minio_rules
+        target: /etc/prometheus/minio.rules.yml
+      - source: mongo_rules
+        target: /etc/prometheus/mongo.rules.yml
+      - source: redis_rules
+        target: /etc/prometheus/redis.rules.yml
+      - source: postgres_rules
+        target: /etc/prometheus/postgres.rules.yml
+      - source: prometheus_config
+        target: /etc/prometheus/prometheus.yml
+    secrets:
+      - prometheus-minio-job-token
+    networks:
+      traefik-public:
+        aliases:
+          - prometheus.local
+    deploy:
+      labels:
+        - "traefik.enable=true"
+        - "traefik.http.routers.prometheus.rule=Host(`prometheus.${APP_DOMAIN}`)"
+        - "traefik.http.services.prometheus.loadbalancer.server.port=9090"
+        - "traefik.http.routers.prometheus.entrypoints=websecure"
+        - "traefik.http.routers.prometheus.tls=true"
+        - "traefik.http.routers.prometheus.tls.certresolver=leresolver"
+        - "traefik.http.routers.prometheus.middlewares=authprometheus"
+        - "traefik.http.middlewares.authprometheus.basicauth.usersfile=/run/secrets/prometheus-auth-basic"
+      mode: replicated
+      replicas: 1
+      restart_policy:
+        condition: on-failure
+      placement:
+        constraints:
+          - node.labels.type == backup
+
+  alertmanager: # alerts dispatcher
+    image: prom/alertmanager:v0.28.0
+    networks:
+      traefik-public:
+        aliases:
+          - alertmanager.local
+    volumes:
+      - /home/monitoring/alertmanager-data:/alertmanager
+    command:
+      - '--config.file=/etc/alertmanager/alertmanager.yml'
+      - '--storage.path=/alertmanager'
+    configs:
+      - source: alertmanager_config
+        target: /etc/alertmanager/alertmanager.yml
+      - source: alertmanager_template_telegram
+        target: /etc/alertmanager/templates/telegram.swim.tmpl
+    secrets:
+      - alertmanager-telegram-bot-token
+    deploy:
+      mode: replicated
+      replicas: 1
+      restart_policy:
+        condition: on-failure
+      placement:
+        constraints:
+          - node.labels.type == backup
+      resources:
+        limits:
+          memory: 128M
+        reservations:
+          memory: 64M
+
+secrets:
+  grafana-admin-user:
+    file: ./secrets/grafana-admin-user.txt
+  grafana-admin-password:
+    file: ./secrets/grafana-admin-password.txt
+  alertmanager-telegram-bot-token:
+    file: ./secrets/alertmanager-telegram-bot-token.txt
+  prometheus-minio-job-token:
+    file: ./secrets/prometheus-minio-job-token.txt
+  postgres-exporter-config:
+    file: ./secrets/postgres-exporter-config.yml
+
+networks:
+  traefik-public:
+    external: true
+
+volumes:
+  promtail-data:

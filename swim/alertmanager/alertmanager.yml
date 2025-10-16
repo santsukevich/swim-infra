@@ -1,0 +1,21 @@
+global:
+  resolve_timeout: 5m
+
+templates:
+  - '/etc/alertmanager/templates/*.tmpl'
+
+route:
+  group_by: ['alertname']
+  group_wait: 30s
+  group_interval: 1m
+  repeat_interval: 1h
+  receiver: 'telegram_bot'
+
+receivers:
+- name: 'telegram_bot'
+  telegram_configs:
+  - send_resolved: true
+    bot_token_file: /run/secrets/alertmanager-telegram-bot-token
+    api_url: 'https://api.telegram.org'
+    chat_id: -1002271164178
+    message: '{{ template "telegram.swim.message" .}}'

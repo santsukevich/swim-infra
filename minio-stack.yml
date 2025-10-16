@@ -1,0 +1,43 @@
+services:
+  minio:
+    image: minio/minio
+    volumes:
+     - /mnt/drive-1:/drive-1
+     - /mnt/drive-2:/drive-2
+    networks:
+      traefik-public:
+        aliases:
+          - minio.local
+    hostname: "minio.{{.Node.Hostname}}"
+    environment:
+      - MINIO_CONFIG_ENV_FILE=/run/secrets/minio-env
+    secrets:
+      - minio-env
+    deploy:
+      labels:
+        - "traefik.enable=true"
+        - "traefik.http.routers.minio.service=minio"
+        - "traefik.http.routers.minio.rule=Host(`storage.${APP_DOMAIN}`)"
+        - "traefik.http.routers.minio.entrypoints=websecure"
+        - "traefik.http.routers.minio.tls=true"
+        - "traefik.http.routers.minio.tls.certresolver=leresolver"
+        - "traefik.http.services.minio.loadbalancer.server.port=9000"
+        - "traefik.http.routers.minio-console.service=minio-console"
+        - "traefik.http.routers.minio-console.rule=Host(`storage-console.${APP_DOMAIN}`)"
+        - "traefik.http.routers.minio-console.entrypoints=websecure"
+        - "traefik.http.routers.minio-console.tls=true"
+        - "traefik.http.routers.minio-console.tls.certresolver=leresolver"
+        - "traefik.http.services.minio-console.loadbalancer.server.port=9001"
+      mode: global
+      placement:
+        constraints:
+          - node.labels.type == minio
+    command:  minio server --console-address ":9001" http://minio.${MINIO_SERVER_LIST}.${APP_DOMAIN}:9000/${MINIO_DRIVE_LIST}/minio
+
+secrets:
+  minio-env:
+    file: ./secrets/minio-env.txt
+
+networks:
+  traefik-public:
+    external: true

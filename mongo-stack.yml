@@ -1,0 +1,63 @@
+services:
+  mongo-1:
+    image: mongo:7.0.16
+    volumes:
+      - "mongo-data-1:/data/db"
+      - "mongo-config-1:/data/configdb"
+    networks:
+      traefik-public:
+        aliases:
+          - mongo-1.local
+    command: --replSet replica01 --bind_ip_all --port 27017
+    deploy:
+      mode: replicated
+      replicas: 1
+      placement:
+        constraints:
+          - node.labels.mongo.replica == 1
+
+  mongo-2:
+    image: mongo:7.0.16
+    volumes:
+      - "mongo-data-2:/data/db"
+      - "mongo-config-2:/data/configdb"
+    networks:
+      traefik-public:
+        aliases:
+          - mongo-2.local
+    command: --replSet replica01 --bind_ip_all --port 27017
+    deploy:
+      mode: replicated
+      replicas: 1
+      placement:
+        constraints:
+          - node.labels.mongo.replica == 2
+
+  mongo-3:
+    image: mongo:7.0.16
+    volumes:
+      - "mongo-data-3:/data/db"
+      - "mongo-config-3:/data/configdb"
+    networks:
+      traefik-public:
+        aliases:
+          - mongo-3.local
+    command: --replSet replica01 --bind_ip_all --port 27017
+    deploy:
+      mode: replicated
+      replicas: 1
+      placement:
+        constraints:
+          - node.labels.mongo.replica == 3
+
+volumes:
+  mongo-data-1:
+  mongo-config-1:
+  mongo-data-2:
+  mongo-config-2:
+  mongo-data-3:
+  mongo-config-3:
+
+networks:
+  traefik-public:
+    external: true
