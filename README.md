@@ -47,12 +47,14 @@ Stacks are updated via `git pull` and `init.sh`. You should do this in your CI/C
 2. Entrypoints `web` (80) and `websecure` (443) are configured
 3. HTTP -> HTTPS redirect is configured
 4. Basic Auth for Traefik console
+5. Console is available at `traefik.${APP_DOMAIN}`
 
 ## Portainer
 `/portainer-stack.yml`
 1. Portainer Server is deployed on the Swarm Manager
 2. Portainer Agent is deployed on all nodes
 3. Routing via Traefik
+4. Portainer is available at `portainer.${APP_DOMAIN}`
 
 ## Monitoring
 `/monitoring-stack.yml`
@@ -66,39 +68,45 @@ Stacks are updated via `git pull` and `init.sh`. You should do this in your CI/C
 8. Loki is deployed on the node with label `type==backup`
 9. pushgateway is deployed on the node with label `type==backup`
 10. Routing for Grafana, Prometheus, Alertmanager via Traefik
-11. Basic Auth for Prometheus and Alertmanager
-12. Data for Grafana, Prometheus, Alertmanager, and Loki are stored on the machine with label `type==backup` at `/home/monitoring/`. I used bind-mount to get around my test setup limitations. Adjust at your needs.
+11. Basic Auth for Prometheus
+12. Grafana is available at `grafana.${APP_DOMAIN}`
+13. Prometheus is available at `prometheus.${APP_DOMAIN}`
+14. Data for Grafana, Prometheus, Alertmanager, and Loki are stored on the machine with label `type==backup` at `/home/monitoring/`. I used bind-mount to get around my test setup limitations. Adjust at your needs.
 
 ## App
 `/app-stack.yml`
 1. All services are deployed on nodes with label `type==app`
 2. Example app connects to storages, performs ping-like check and returns status message, check `/app`
 3. Routing via Traefik
+4. App is available at `infra-teser.${APP_DOMAIN}`
+5. `/health`, `/check`, `/metrics` endpoints
 
 ## Minio
 `/minio-stack.yml`
 1. Replicas are deployed on nodes with label `type==minio`
-2. Nodes are prepped; disks for Minio are partitioned and added to `fstab`
+2. Minio nodes should be prepped, in my test setup disks for Minio are partitioned and added to `/etc/fstab`
 3. Routing for Minio and Minio-Console via Traefik
-4. Don't forget to check the volumes section for Minio; all used disks must be mounted into the container
+4. Minio Console available at `storage.${APP_DOMAIN}`
+5. Minio available at `storage-console.${APP_DOMAIN}`
+6. Don't forget to check the volumes section for Minio, disks must be mounted into the container
 
 ## Redis
 `/redis-stack.yml`
-1. Replicas are created as separate services and deployed on nodes with label `redis.replica == X`, where X is the replica number
+1. Replicas are configured as separate services and deployed on nodes with label `redis.replica == X`, where X is the replica number
 2. Redis Sentinel is used for HA; Sentinel replicas are created as separate services and deployed the same way as Redis replicas
 3. For clients that don't support Redis Sentinel, a workaround based on HAProxy is deployed to poll Redis Sentinel replicas
 
 ## Mongo
 `/mongo-stack.yml`
-1. Replicas are created as separate services and deployed on nodes with label `mongo.replica == X`, where X is the replica number
+1. Replicas are configured as separate services and deployed on nodes with label `mongo.replica == X`, where X is the replica number
 
 ## Postgres
 `/postgres-stack.yml`
-1. Replicas are created as separate services and deployed on nodes with label `postgres.replica == X`, where X is the replica number
+1. Replicas are configured as separate services and deployed on nodes with label `postgres.replica == X`, where X is the replica number
 
-`/backup-stack.yml`
 ## Backup
-1. The `crazymax/swarm-cronjob` image is used as the scheduler and is deployed on the Swarm Manager
+`/backup-stack.yml`
+1. The `crazymax/swarm-cronjob` is used as the scheduler and is deployed on the Swarm Manager
 2. Backups of Redis and Mongo are saved on the machine with label `type==backup` at `/home/backup/`. I used bind-mount to get around my test setup limitations. Adjust at your needs.
 
 # License
